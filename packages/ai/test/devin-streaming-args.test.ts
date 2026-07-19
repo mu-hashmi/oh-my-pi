@@ -7,6 +7,7 @@ import { GetChatMessageResponseSchema } from "@oh-my-pi/pi-catalog/discovery/dev
 import { GetUserJwtResponseSchema } from "@oh-my-pi/pi-catalog/discovery/devin-gen/exa/auth_pb/auth_pb";
 import {
 	ChatToolCallSchema,
+	ModelUsageStatsSchema,
 	StopReason,
 } from "@oh-my-pi/pi-catalog/discovery/devin-gen/exa/codeium_common_pb/codeium_common_pb";
 
@@ -24,6 +25,23 @@ function toolCallDelta(argumentsJson: string, stopReason = StopReason.UNSPECIFIE
 		messageId: "msg-1",
 		stopReason,
 		deltaToolCalls: [create(ChatToolCallSchema, { id: "call-1", name: "task", argumentsJson })],
+	});
+	return frameConnectMessage(toBinary(GetChatMessageResponseSchema, msg));
+}
+function usageMessage(
+	inputTokens: bigint,
+	outputTokens: bigint,
+	cacheReadTokens: bigint,
+	cacheWriteTokens: bigint,
+): Uint8Array {
+	const msg = create(GetChatMessageResponseSchema, {
+		messageId: "msg-2",
+		usage: create(ModelUsageStatsSchema, {
+			inputTokens,
+			outputTokens,
+			cacheReadTokens,
+			cacheWriteTokens,
+		}),
 	});
 	return frameConnectMessage(toBinary(GetChatMessageResponseSchema, msg));
 }
@@ -83,5 +101,40 @@ describe("streamDevin args streaming", () => {
 		expect(snapshots[2]).toBe(snapshots[0]);
 		expect(result.content[0]?.type).toBe("toolCall");
 		expect((result.content[0] as ToolCall).arguments).toEqual({ agent: "task", note: "initial", step: 12 });
+	});
+
+	it("reports totalTokens as the sum of input, output, cacheRead, and cacheWrite", async () => {
+		const authPayload = toBinary(GetUserJwtResponseSchema, create(GetUserJwtResponseSchema, { userJwt: "jwt" }));
+		const usagePayload = usageMessage(10n, 20n, 30n, 40n);
+		const fetchImpl = (async (input: string | URL | Request) => {
+			const url = String(input);
+			if (url.includes("GetUserJwt")) return new Response(authPayload);
+			let sent = false;
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					pull(controller) {
+						if (!sent) {
+							sent = true;
+							controller.enqueue(usagePayload);
+						} else {
+							controller.close();
+						}
+					},
+				}),
+				{ status: 200 },
+			);
+		}) as typeof fetch;
+
+		const stream = streamDevin(devinModel, context, { apiKey: "token", fetch: fetchImpl });
+		for await (const _event of stream) {
+			// consume stream
+		}
+		const result = await stream.result();
+
+		expect(result.usage.input).toBe(10);
+		expect(result.usage.output).toBe(20);
+		expect(result.usage.cacheRead).toBe(30);
+		expect(result.usage.cacheWrite).toBe(40);
+		expect(result.usage.totalTokens).toBe(100);
 	});
 });

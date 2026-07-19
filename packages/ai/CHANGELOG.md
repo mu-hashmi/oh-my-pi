@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Devin cache-read and cache-write tokens being omitted from `totalTokens`, which prevented cache-heavy sessions from triggering context compaction before the model limit and caused repeated opaque provider failures ([#6084](https://github.com/can1357/oh-my-pi/issues/6084)).
+
 ## [17.0.5] - 2026-07-18
 
 ### Changed
