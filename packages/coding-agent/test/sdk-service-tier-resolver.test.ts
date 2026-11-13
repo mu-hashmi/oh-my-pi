@@ -7,6 +7,7 @@ import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { createAgentSession, type ExtensionFactory } from "@oh-my-pi/pi-coding-agent/sdk";
 import type { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { createSubagentSettings } from "@oh-my-pi/pi-coding-agent/task/executor";
 import { TempDir, withTimeout } from "@oh-my-pi/pi-utils";
 import { createInMemoryAuthStorage } from "./helpers/agent-session-setup";
 
@@ -226,6 +227,39 @@ describe.serial("createAgentSession resolveServiceTierByFamily", () => {
 			const firstFrame = socket.frames.find(frame => frame.type === "response.create");
 			expect(firstFrame).toMatchObject({ model: "deferred-model", service_tier: "priority" });
 			expect(CapturingWebSocket.instances).toHaveLength(1);
+		} finally {
+			await session.dispose();
+		}
+	});
+
+	it("inherits API ultrafast as Codex priority on prewarm and outgoing turns", async () => {
+		using tempDir = TempDir.createSync("@omp-service-tier-inherit-ultrafast-");
+		installCapturingWebSocket();
+		const inheritedTiers = { openai: "ultrafast", anthropic: "priority", google: "flex" } as const;
+		const settings = createSubagentSettings(
+			Settings.isolated({
+				"providers.openaiWebsockets": "on",
+				enabledModels: ["openai-codex/deferred-model"],
+				"tier.subagent": "inherit",
+				"tier.openai": "priority",
+			}),
+			undefined,
+			inheritedTiers,
+		);
+		const { session } = await createAgentSession({
+			...sessionOptions(tempDir.path(), openAuthStorage(), settings, SessionManager.inMemory()),
+			extensions: [deferredCodexProviderExtension],
+			modelPattern: "openai-codex/deferred-model",
+		});
+		try {
+			const socket = await waitForPrewarmSocket();
+			expect(socket.headers["x-codex-routing-hint"]).toBe("model=deferred-model;tier=priority");
+			await session.prompt("inherited tier turn");
+			const frame = socket.frames.find(candidate => candidate.type === "response.create");
+			expect(frame).toMatchObject({ model: "deferred-model", service_tier: "priority" });
+			const response = session.state.messages.find(message => message.role === "assistant");
+			expect(response).toMatchObject({ serviceTier: "priority" });
+			expect(session.serviceTierByFamily).toEqual(inheritedTiers);
 		} finally {
 			await session.dispose();
 		}

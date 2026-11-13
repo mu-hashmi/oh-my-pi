@@ -212,8 +212,8 @@ export function serviceTierFamily(model: ServiceTierModel): ServiceTierFamily | 
 }
 
 /**
- * Reduce a per-family tier map to the single wire tier for `model` — the entry
- * for the model's family, or `undefined` when the model has no family.
+ * Reduce a per-family tier map to the model's family entry. Codex models that
+ * cannot serve inherited ultrafast use priority when that tier is available.
  */
 export function resolveModelServiceTier(
 	tiers: ServiceTierByFamily | null | undefined,
@@ -221,7 +221,16 @@ export function resolveModelServiceTier(
 ): ServiceTier | undefined {
 	if (!tiers) return undefined;
 	const family = serviceTierFamily(model);
-	return family ? tiers[family] : undefined;
+	const tier = family ? tiers[family] : undefined;
+	if (
+		tier === "ultrafast" &&
+		model.api === "openai-codex-responses" &&
+		!shouldSendServiceTier(tier, model) &&
+		shouldSendServiceTier("priority", model)
+	) {
+		return "priority";
+	}
+	return tier;
 }
 
 /**

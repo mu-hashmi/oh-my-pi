@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Codex sessions inheriting API-only ultrafast now request priority when available instead of silently using standard speed; supported ultrafast routes and other provider-family tiers are unchanged.
+
 ## [18.20.0] - 2026-11-12
 
 ### Added

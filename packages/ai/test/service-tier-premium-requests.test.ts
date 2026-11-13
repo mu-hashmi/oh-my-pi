@@ -77,6 +77,21 @@ describe("resolveModelServiceTier", () => {
 		expect(resolveModelServiceTier(undefined, openai)).toBeUndefined();
 		expect(resolveModelServiceTier({ google: "priority" }, openai)).toBeUndefined();
 	});
+
+	it("keeps API ultrafast while resolving unsupported Codex ultrafast to available priority", () => {
+		const tiers = { openai: "ultrafast", anthropic: "priority", google: "flex" } as const;
+		expect(resolveModelServiceTier(tiers, openai)).toBe("ultrafast");
+		for (const model of [codex, customCodex]) {
+			expect(resolveModelServiceTier(tiers, model)).toBe("priority");
+			expect(resolveModelServiceTier(tiers, { ...model, serviceTiers: [] })).toBe("priority");
+			expect(resolveModelServiceTier(tiers, { ...model, serviceTiers: ["priority"] })).toBe("priority");
+			expect(resolveModelServiceTier(tiers, { ...model, serviceTiers: ["ultrafast"] })).toBe("ultrafast");
+			expect(resolveModelServiceTier(tiers, { ...model, serviceTiers: ["default"] })).toBe("ultrafast");
+		}
+		expect(resolveModelServiceTier(tiers, anthropic)).toBe("priority");
+		expect(resolveModelServiceTier(tiers, gemini)).toBe("flex");
+		expect(tiers).toEqual({ openai: "ultrafast", anthropic: "priority", google: "flex" });
+	});
 });
 
 describe("shouldSendServiceTier", () => {
